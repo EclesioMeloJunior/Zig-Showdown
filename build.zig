@@ -1,64 +1,65 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const vkgen = @import("deps/vulkan-zig/generator/index.zig");
 const AssetStep = @import("src/build/AssetStep.zig");
 
 const pkgs = struct {
-    const network = std.build.Pkg{
+    const network = .{
         .name = "network",
-        .path = "./deps/zig-network/network.zig",
+        .path = std.Build.LazyPath.relative("./deps/zig-network/network.zig"),
     };
 
-    const args = std.build.Pkg{
+    const args = .{
         .name = "args",
-        .path = "./deps/zig-args/args.zig",
+        .path = std.Build.LazyPath.relative("./deps/zig-args/args.zig"),
     };
 
-    const pixel_draw = std.build.Pkg{
+    const pixel_draw = .{
         .name = "pixel_draw",
-        .path = "./deps/pixel_draw/src/pixel_draw_module.zig",
+        .path = std.Build.LazyPath.relative("./deps/pixel_draw/src/pixel_draw_module.zig"),
     };
 
-    const zwl = std.build.Pkg{
+    const zwl = .{
         .name = "zwl",
-        .path = "./deps/zwl/src/zwl.zig",
+        .path = std.Build.LazyPath.relative("./deps/zwl/src/zwl.zig"),
     };
 
-    const painterz = std.build.Pkg{
+    const painterz = .{
         .name = "painterz",
-        .path = "./deps/painterz/painterz.zig",
+        .path = std.Build.LazyPath.relative("./deps/painterz/painterz.zig"),
     };
 
-    const zlm = std.build.Pkg{
+    const zlm = .{
         .name = "zlm",
-        .path = "./deps/zlm/zlm.zig",
+        .path = std.Build.LazyPath.relative("./deps/zlm/zlm.zig"),
     };
 
-    const wavefront_obj = std.build.Pkg{
+    const wavefront_obj = .{
         .name = "wavefront-obj",
-        .path = "./deps/wavefront-obj/wavefront-obj.zig",
-        .dependencies = &[_]std.build.Pkg{
+        .path = std.Build.LazyPath.relative("./deps/wavefront-obj/wavefront-obj.zig"),
+        .dependencies = &.{
             zlm,
         },
     };
 
-    const zzz = std.build.Pkg{
+    const zzz = .{
         .name = "zzz",
-        .path = "./deps/zzz/src/main.zig",
+        .path = std.Build.LazyPath.relative("./deps/zzz/src/main.zig"),
     };
 
-    const gl = std.build.Pkg{
+    const gl = .{
         .name = "gl",
-        .path = "./deps/opengl/gl_3v3_with_exts.zig",
+        .path = std.Build.LazyPath.relative("./deps/opengl/gl_3v3_with_exts.zig"),
     };
 
-    const zigimg = std.build.Pkg{
+    const zigimg = .{
         .name = "zigimg",
-        .path = "./deps/zigimg/zigimg.zig",
+        .path = std.Build.LazyPath.relative("./deps/zigimg/zigimg.zig"),
     };
 
-    const soundio = std.build.Pkg{
+    const soundio = .{
         .name = "soundio",
-        .path = "./deps/soundio.zig/soundio.zig",
+        .path = std.Build.LazyPath.relative("./deps/soundio.zig/soundio.zig"),
     };
 };
 
@@ -103,24 +104,60 @@ const AudioConfig = struct {
 };
 
 fn addClientPackages(
-    exe: *std.build.LibExeObjStep,
+    b: *std.build.Builder,
+    exe: *std.Build.Step.Compile,
     target: std.zig.CrossTarget,
     render_backend: RenderBackend,
     gen_vk: *vkgen.VkGenerateStep,
-    resources: std.build.Pkg,
+    resources: AssetStep.Pkg,
 ) void {
-    exe.addPackage(pkgs.network);
-    exe.addPackage(pkgs.args);
-    exe.addPackage(pkgs.zwl);
-    exe.addPackage(pkgs.zlm);
-    exe.addPackage(pkgs.zzz);
-    exe.addPackage(resources);
-    exe.addPackage(pkgs.soundio);
+    const args_module = b.createModule(.{
+        .source_file = pkgs.args.path,
+        .dependencies = &.{},
+    });
+
+    const network_module = b.createModule(.{
+        .source_file = pkgs.network.path,
+        .dependencies = &.{},
+    });
+
+    const zwl_module = b.createModule(.{
+        .source_file = pkgs.zwl.path,
+        .dependencies = &.{},
+    });
+
+    const zlm_module = b.createModule(.{
+        .source_file = pkgs.zlm.path,
+        .dependencies = &.{},
+    });
+
+    const zzz_module = b.createModule(.{
+        .source_file = pkgs.zzz.path,
+        .dependencies = &.{},
+    });
+
+    const resources_module = b.createModule(.{
+        .source_file = std.Build.LazyPath.relative(resources.path),
+        .dependencies = &.{},
+    });
+
+    const soundio_module = b.createModule(.{
+        .source_file = pkgs.soundio.path,
+        .dependencies = &.{},
+    });
+
+    exe.addModule(pkgs.network.name, network_module);
+    exe.addModule(pkgs.args.name, args_module);
+    exe.addModule(pkgs.zwl.name, zwl_module);
+    exe.addModule(pkgs.zlm.name, zlm_module);
+    exe.addModule(pkgs.zzz.name, zzz_module);
+    exe.addModule(resources.name, resources_module);
+    exe.addModule(pkgs.soundio.name, soundio_module);
 
     switch (render_backend) {
         .vulkan, .vulkan_rt => {
             exe.step.dependOn(&gen_vk.step);
-            exe.addPackage(gen_vk.package);
+            exe.addModule("vulkan", gen_vk.getModule());
             exe.linkLibC();
 
             if (target.isLinux()) {
@@ -130,15 +167,30 @@ fn addClientPackages(
             }
         },
         .software => {
-            exe.addPackage(pkgs.pixel_draw);
-            exe.addPackage(pkgs.painterz);
+            const pixel_draw_module = b.createModule(.{
+                .source_file = pkgs.pixel_draw.path,
+                .dependencies = &.{},
+            });
+
+            const painterz_module = b.createModule(.{
+                .source_file = pkgs.painterz.path,
+                .dependencies = &.{},
+            });
+
+            exe.addModule(pkgs.pixel_draw.name, pixel_draw_module);
+            exe.addModule(pkgs.painterz.name, painterz_module);
         },
         .opengl_es => {
             // TODO
             @panic("opengl_es is not implementated yet");
         },
         .opengl => {
-            exe.addPackage(pkgs.gl);
+            const gl_module = b.createModule(.{
+                .source_file = pkgs.gl.path,
+                .dependencies = &.{},
+            });
+
+            exe.addModule(pkgs.gl.name, gl_module);
             if (target.isWindows()) {
                 exe.linkSystemLibrary("opengl32");
             } else {
@@ -153,7 +205,7 @@ fn addClientPackages(
 pub fn build(b: *std.build.Builder) !void {
     // workaround for windows not having visual studio installed
     // (makes .gnu the default target)
-    const native_target = if (std.builtin.os.tag != .windows)
+    const native_target = if (builtin.os.tag != .windows)
         std.zig.CrossTarget{}
     else
         std.zig.CrossTarget{ .abi = .gnu };
@@ -161,7 +213,7 @@ pub fn build(b: *std.build.Builder) !void {
     const target = b.standardTargetOptions(.{
         .default_target = native_target,
     });
-    const mode = b.standardReleaseOptions();
+    const mode = b.standardOptimizeOption(.{});
 
     const default_port = b.option(
         u16,
@@ -195,7 +247,7 @@ pub fn build(b: *std.build.Builder) !void {
         "When set, the tools will be compiled in Debug mode, ReleaseSafe otherwise.",
     ) orelse false;
 
-    const tool_mode: std.builtin.Mode = if (debug_tools)
+    const tool_mode: std.builtin.OptimizeMode = if (debug_tools)
         .Debug
     else
         .ReleaseSafe;
@@ -214,27 +266,58 @@ pub fn build(b: *std.build.Builder) !void {
 
     const test_step = b.step("test", "Runs the test suite for all source filess");
 
-    const gen_vk = vkgen.VkGenerateStep.init(b, vk_xml_path, "vk.zig");
+    const gen_vk = vkgen.VkGenerateStep.create(b, vk_xml_path);
+
+    const args_module = b.createModule(.{
+        .source_file = pkgs.args.path,
+        .dependencies = &.{},
+    });
+
+    const zlm_module = b.createModule(.{
+        .source_file = pkgs.zlm.path,
+        .dependencies = &.{},
+    });
+
+    const wavefront_obj_module = b.createModule(.{
+        .source_file = pkgs.wavefront_obj.path,
+        .dependencies = &.{
+            .{ .name = pkgs.zlm.name, .module = zlm_module },
+        },
+    });
+
+    const zigimg_module = b.createModule(.{
+        .source_file = pkgs.zlm.path,
+        .dependencies = &.{},
+    });
 
     const asset_gen_step = blk: {
-        const obj_conv = b.addExecutable("obj-conv", "src/tools/obj-conv.zig");
-        obj_conv.addPackage(pkgs.args);
-        obj_conv.addPackage(pkgs.zlm);
-        obj_conv.addPackage(pkgs.wavefront_obj);
-        obj_conv.setTarget(native_target);
-        obj_conv.setBuildMode(tool_mode);
+        const obj_conv = b.addExecutable(.{
+            .name = "obj-conv",
+            .root_source_file = std.Build.LazyPath.relative("src/tools/obj-conv.zig"),
+            .target = native_target,
+            .optimize = tool_mode,
+        });
+        obj_conv.addModule(pkgs.args.name, args_module);
+        obj_conv.addModule(pkgs.zlm.name, zlm_module);
+        obj_conv.addModule(pkgs.wavefront_obj.name, wavefront_obj_module);
 
-        const tex_conv = b.addExecutable("tex-conv", "src/tools/tex-conv.zig");
-        tex_conv.addPackage(pkgs.args);
-        tex_conv.addPackage(pkgs.zigimg);
-        tex_conv.setTarget(native_target);
-        tex_conv.setBuildMode(tool_mode);
+        const tex_conv = b.addExecutable(.{
+            .name = "tex-conv",
+            .root_source_file = std.Build.LazyPath.relative("src/tools/tex-conv.zig"),
+            .target = native_target,
+            .optimize = tool_mode,
+        });
+        tex_conv.addModule(pkgs.args.name, args_module);
+        tex_conv.addModule(pkgs.zigimg.name, zigimg_module);
         tex_conv.linkLibC();
 
-        const snd_conv = b.addExecutable("snd-conv", "src/tools/snd-conv.zig");
-        snd_conv.addPackage(pkgs.args);
-        snd_conv.setTarget(native_target);
-        snd_conv.setBuildMode(tool_mode);
+        const snd_conv = b.addExecutable(.{
+            .name = "snd-conv",
+            .root_source_file = std.Build.LazyPath.relative("src/tools/snd-conv.zig"),
+            .target = native_target,
+            .optimize = tool_mode,
+        });
+        snd_conv.addModule(pkgs.args.name, args_module);
         snd_conv.linkLibC();
 
         const tools_step = b.step("tools", "Compiles all tools required in the build process");
@@ -258,10 +341,11 @@ pub fn build(b: *std.build.Builder) !void {
 
     const libsoundio = blk: {
         const root = "./deps/libsoundio";
-
-        const lib = b.addStaticLibrary("soundio", null);
-        lib.setBuildMode(mode);
-        lib.setTarget(target);
+        const lib = b.addStaticLibrary(.{
+            .name = "soundio",
+            .target = target,
+            .optimize = mode,
+        });
 
         const cflags = [_][]const u8{
             "-std=c11",
@@ -273,13 +357,13 @@ pub fn build(b: *std.build.Builder) !void {
             "-Wno-missing-braces",
         };
 
-        lib.defineCMacro("_REENTRANT");
-        lib.defineCMacro("_POSIX_C_SOURCE=200809L");
+        lib.defineCMacroRaw("_REENTRANT");
+        lib.defineCMacroRaw("_POSIX_C_SOURCE=200809L");
 
-        lib.defineCMacro("SOUNDIO_VERSION_MAJOR=2");
-        lib.defineCMacro("SOUNDIO_VERSION_MINOR=0");
-        lib.defineCMacro("SOUNDIO_VERSION_PATCH=0");
-        lib.defineCMacro("SOUNDIO_VERSION_STRING=\"2.0.0\"");
+        lib.defineCMacroRaw("SOUNDIO_VERSION_MAJOR=2");
+        lib.defineCMacroRaw("SOUNDIO_VERSION_MINOR=0");
+        lib.defineCMacroRaw("SOUNDIO_VERSION_PATCH=0");
+        lib.defineCMacroRaw("SOUNDIO_VERSION_STRING=\"2.0.0\"");
 
         var sources = [_][]const u8{
             root ++ "/src/soundio.c",
@@ -290,21 +374,19 @@ pub fn build(b: *std.build.Builder) !void {
             root ++ "/src/ring_buffer.c",
         };
 
-        for (sources) |src| {
-            lib.addCSourceFile(src, &cflags);
-        }
+        lib.addCSourceFiles(&sources, &cflags);
 
-        if (audio_config.jack) lib.addCSourceFile(root ++ "/src/jack.c", &cflags);
-        if (audio_config.pulseaudio) lib.addCSourceFile(root ++ "/src/pulseaudio.c", &cflags);
-        if (audio_config.alsa) lib.addCSourceFile(root ++ "/src/alsa.c", &cflags);
-        if (audio_config.coreaudio) lib.addCSourceFile(root ++ "/src/coreaudio.c", &cflags);
-        if (audio_config.wasapi) lib.addCSourceFile(root ++ "/src/wasapi.c", &cflags);
+        if (audio_config.jack) lib.addCSourceFile(.{ .file = std.Build.LazyPath.relative(root ++ "/src/jack.c"), .flags = &cflags });
+        if (audio_config.pulseaudio) lib.addCSourceFile(.{ .file = std.Build.LazyPath.relative(root ++ "/src/pulseaudio.c"), .flags = &cflags });
+        if (audio_config.alsa) lib.addCSourceFile(.{ .file = std.Build.LazyPath.relative(root ++ "/src/alsa.c"), .flags = &cflags });
+        if (audio_config.coreaudio) lib.addCSourceFile(.{ .file = std.Build.LazyPath.relative(root ++ "/src/coreaudio.c"), .flags = &cflags });
+        if (audio_config.wasapi) lib.addCSourceFile(.{ .file = std.Build.LazyPath.relative(root ++ "/src/wasapi.c"), .flags = &cflags });
 
-        if (audio_config.jack) lib.defineCMacro("SOUNDIO_HAVE_JACK");
-        if (audio_config.pulseaudio) lib.defineCMacro("SOUNDIO_HAVE_PULSEAUDIO");
-        if (audio_config.alsa) lib.defineCMacro("SOUNDIO_HAVE_ALSA");
-        if (audio_config.coreaudio) lib.defineCMacro("SOUNDIO_HAVE_COREAUDIO");
-        if (audio_config.wasapi) lib.defineCMacro("SOUNDIO_HAVE_WASAPI");
+        if (audio_config.jack) lib.defineCMacroRaw("SOUNDIO_HAVE_JACK");
+        if (audio_config.pulseaudio) lib.defineCMacroRaw("SOUNDIO_HAVE_PULSEAUDIO");
+        if (audio_config.alsa) lib.defineCMacroRaw("SOUNDIO_HAVE_ALSA");
+        if (audio_config.coreaudio) lib.defineCMacroRaw("SOUNDIO_HAVE_COREAUDIO");
+        if (audio_config.wasapi) lib.defineCMacroRaw("SOUNDIO_HAVE_WASAPI");
 
         if (audio_config.jack) lib.linkSystemLibrary("jack");
 
@@ -319,25 +401,23 @@ pub fn build(b: *std.build.Builder) !void {
         lib.linkLibC();
         lib.linkSystemLibrary("m");
 
-        lib.addIncludeDir(root);
-        lib.addIncludeDir("src/soundio");
+        lib.addIncludePath(std.Build.LazyPath.relative(root));
+        lib.addIncludePath(std.Build.LazyPath.relative("src/soundio"));
 
         break :blk lib;
     };
 
     {
-        const client = b.addExecutable("showdown", "src/client/main.zig");
-        addClientPackages(client, target, render_backend, gen_vk, asset_gen_step.package);
+        const client = b.addExecutable(.{ .name = "showdown", .root_source_file = std.Build.LazyPath.relative("src/client/main.zig"), .target = target, .optimize = mode });
 
-        client.addBuildOption(State, "initial_state", initial_state);
-        client.addBuildOption(bool, "enable_frame_counter", enable_frame_counter);
-        client.addBuildOption(u16, "default_port", default_port);
-        client.addBuildOption(RenderBackend, "render_backend", render_backend);
+        addClientPackages(b, client, target, render_backend, gen_vk, asset_gen_step.package);
+
+        // client.addBuildOption(State, "initial_state", initial_state);
+        // client.addBuildOption(bool, "enable_frame_counter", enable_frame_counter);
+        // client.addBuildOption(u16, "default_port", default_port);
+        // client.addBuildOption(RenderBackend, "render_backend", render_backend);
 
         client.linkLibrary(libsoundio);
-
-        client.setTarget(target);
-        client.setBuildMode(mode);
 
         // Needed for libsoundio:
         client.linkLibC();
@@ -361,9 +441,7 @@ pub fn build(b: *std.build.Builder) !void {
             client.linkSystemLibrary("ole32");
         }
 
-        client.install();
-
-        const run_client_cmd = client.run();
+        const run_client_cmd = b.addRunArtifact(client);
         run_client_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| {
             run_client_cmd.addArgs(args);
